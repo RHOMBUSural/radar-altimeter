@@ -220,7 +220,7 @@ class RadarAltimeterGUI:
         landscape_window.title("3D визуализация ландшафта")
         
         # Создаем фигуру для 3D графика
-        fig = plt.figure(figsize=(10, 8))
+        fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
         
         # Создаем сетку для поверхности
@@ -262,14 +262,41 @@ class RadarAltimeterGUI:
             SurfaceType.URBAN: 30
         }
         
+        # Создаем массив для отраженного сигнала
+        signal_strength = np.zeros_like(X)
+        
         for i in range(len(x)):
             for j in range(len(y)):
                 surface_type = combined_surface.get_surface_type(x[i], y[j])
                 Z[i,j] = height_map[surface_type]
                 colors[i,j] = color_map[surface_type]
+                
+                # Создаем параметры поверхности для текущей точки
+                surface_params = SurfaceParameters(surface_type)
+                
+                # Рассчитываем угол скольжения для текущей точки
+                dx = x[i] - 50  # Смещение от центра
+                dy = y[j] - 50
+                distance = np.sqrt(dx**2 + dy**2)
+                grazing_angle = np.arctan2(self.height_var.get(), distance)
+                
+                # Рассчитываем коэффициент отражения
+                reflection_coeff = self.altimeter.calculate_reflection_coefficient(grazing_angle, surface_params)
+                
+                # Учитываем затухание с расстоянием
+                attenuation = 1.0 / (distance**2 + self.height_var.get()**2)
+                
+                # Сохраняем силу сигнала
+                signal_strength[i,j] = reflection_coeff * attenuation
+        
+        # Нормализуем силу сигнала для визуализации
+        signal_strength = signal_strength / np.max(signal_strength)
         
         # Отображаем поверхность с цветами
         surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8)
+        
+        # Отображаем силу отраженного сигнала
+        signal_surf = ax.plot_surface(X, Y, Z + 5, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
         
         # Добавляем легенду
         legend_elements = []
@@ -292,7 +319,7 @@ class RadarAltimeterGUI:
         ax.grid(True)
         
         # Добавляем подпись с текущими углами крена и тангажа
-        ax.text2D(0.02, 0.95, f"Крен: {self.roll_var.get():.1f}°\nТангаж: {self.pitch_var.get():.1f}°", 
+        ax.text2D(0.02, 0.95, f"Крен: {self.roll_var.get():.1f}°\nТангаж: {self.pitch_var.get():.1f}°\nВысота: {self.height_var.get()}м", 
                  transform=ax.transAxes, bbox=dict(facecolor='white', alpha=0.8))
         
         # Создаем холст для отображения графика
