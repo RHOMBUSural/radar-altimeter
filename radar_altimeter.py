@@ -15,6 +15,33 @@ class SurfaceType(Enum):
     FOREST = "лес"
     URBAN = "город"
     DESERT = "пустыня"
+    COMBINED = "комбинированный"
+
+class CombinedSurface:
+    def __init__(self, surfaces):
+        """
+        Инициализация комбинированной поверхности
+        
+        Args:
+            surfaces (list): Список кортежей (surface_type, x_start, x_end, y_start, y_end)
+        """
+        self.surfaces = surfaces
+        
+    def get_surface_type(self, x, y):
+        """
+        Получение типа поверхности для заданных координат
+        
+        Args:
+            x (float): X-координата
+            y (float): Y-координата
+            
+        Returns:
+            SurfaceType: Тип поверхности в заданной точке
+        """
+        for surface_type, x1, x2, y1, y2 in self.surfaces:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return surface_type
+        return SurfaceType.LAND  # По умолчанию возвращаем сушу
 
 class SurfaceParameters:
     def __init__(self, surface_type, roughness=0.1, moisture=0.0, temperature=20.0):
@@ -34,6 +61,8 @@ class RadarAltimeter:
         self.modulation_type = ModulationType.LFM  # Тип модуляции
         self.pulse_width = 0.1e-6  # Длительность импульса для ИМ, с
         self.pulse_period = 1e-3    # Период повторения импульсов для ИМ, с
+        self.tx_power = 0.1  # Мощность передатчика, Вт
+        self.antenna_gain = 10  # Усиление антенны, дБ
         
     def calculate_reflection_coefficient(self, grazing_angle, surface_params):
         """
@@ -165,12 +194,15 @@ class RadarAltimeter:
         grazing_angle = np.arctan(1.0 / effective_height)
         reflection_coeff = self.calculate_reflection_coefficient(grazing_angle, surface_params)
         
+        # Учет мощности передатчика и усиления антенны
+        power_factor = np.sqrt(self.tx_power) * 10**(self.antenna_gain/20)
+        
         # Создание отраженного сигнала с учетом задержки и затухания
         rx_signal = np.zeros_like(tx_signal)
         delay_samples = int(delay * 1e9)  # Преобразуем задержку в количество отсчетов
         
         if delay_samples < len(tx_signal):
-            rx_signal[delay_samples:] = tx_signal[:-delay_samples] * attenuation * reflection_coeff
+            rx_signal[delay_samples:] = tx_signal[:-delay_samples] * attenuation * reflection_coeff * power_factor
             
             # Добавляем шум
             noise_power = 0.1 * np.max(np.abs(rx_signal))
@@ -190,7 +222,11 @@ class RadarAltimeter:
             tx_signal (array): Передаваемый сигнал
             rx_signal (array): Отраженный сигнал
         """
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(12, 8))
+        
+        # Добавляем информацию об углах
+        plt.figtext(0.02, 0.95, f"Крен: {self.roll:.1f}°", fontsize=10)
+        plt.figtext(0.02, 0.92, f"Тангаж: {self.pitch:.1f}°", fontsize=10)
         
         plt.subplot(2, 1, 1)
         plt.plot(t * 1e6, tx_signal)
@@ -213,7 +249,7 @@ if __name__ == "__main__":
     altimeter = RadarAltimeter()
     
     # Параметры моделирования
-    height = 1000  # Высота в метрах
+    height = 10  # Высота в метрах
     
     # Примеры различных типов поверхностей
     surfaces = [
