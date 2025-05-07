@@ -222,6 +222,24 @@ class RadarAltimeterGUI:
         landscape_window = tk.Toplevel(self.root)
         landscape_window.title("3D визуализация ландшафта")
         
+        # Создаем фрейм для управления
+        control_frame = ttk.Frame(landscape_window)
+        control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        # Добавляем чекбокс для отображения отраженного сигнала
+        show_signal_var = tk.BooleanVar(value=True)
+        show_signal_check = ttk.Checkbutton(control_frame, text="Показать отраженный сигнал", 
+                                          variable=show_signal_var,
+                                          command=lambda: self.update_3d_plot(fig, ax, X, Y, Z, colors, 
+                                                                             signal_strength, show_signal_var.get()))
+        show_signal_check.pack(side=tk.LEFT, padx=5)
+        
+        # Добавляем кнопку обновления
+        update_button = ttk.Button(control_frame, text="Обновить ландшафт", 
+                                 command=lambda: self.update_3d_plot(fig, ax, X, Y, Z, colors, 
+                                                                   signal_strength, show_signal_var.get()))
+        update_button.pack(side=tk.LEFT, padx=5)
+        
         # Создаем фигуру для 3D графика
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
@@ -413,7 +431,7 @@ class RadarAltimeterGUI:
         surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8)
         
         # Отображаем силу отраженного сигнала, если включено
-        if self.show_signal_var.get():
+        if show_signal_var.get():
             signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
         
         # Добавляем легенду
@@ -465,6 +483,31 @@ class RadarAltimeterGUI:
         
         save_button = ttk.Button(landscape_window, text="Сохранить график", command=save_plot)
         save_button.pack(pady=5)
+    
+    def update_3d_plot(self, fig, ax, X, Y, Z, colors, signal_strength, show_signal):
+        # Очищаем текущий график
+        ax.clear()
+        
+        # Отображаем поверхность с цветами
+        surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8)
+        
+        # Отображаем силу отраженного сигнала, если включено
+        if show_signal:
+            signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
+        
+        # Настраиваем оси
+        ax.set_xlabel('X (м)')
+        ax.set_ylabel('Y (м)')
+        ax.set_zlabel('Высота (м)')
+        
+        # Устанавливаем начальный угол обзора
+        ax.view_init(elev=30, azim=45)
+        
+        # Добавляем сетку
+        ax.grid(True)
+        
+        # Обновляем холст
+        fig.canvas.draw()
 
     def update_plots(self):
         # Обновляем параметры радиовысотомера
