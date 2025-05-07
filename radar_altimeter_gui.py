@@ -6,18 +6,33 @@ from matplotlib.widgets import SpanSelector
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from radar_altimeter import RadarAltimeter, SurfaceParameters, SurfaceType, ModulationType, CombinedSurface
+import json
+import os
+from pathlib import Path
 
 class RadarAltimeterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Радиовысотомер")
         
+        # Определяем путь к файлу настроек в директории пользователя
+        self.settings_file = os.path.join(str(Path.home()), 'radar_altimeter_settings.json')
+        
         # Создаем экземпляр радиовысотомера
         self.altimeter = RadarAltimeter()
         
-        # Устанавливаем начальные параметры
-        self.altimeter.antenna_gain = 10  # Коэффициент усиления антенны в дБ
-        self.altimeter.tx_power = 0.1    # Мощность передатчика в Вт
+        # Инициализируем переменные по умолчанию
+        self.f0_var = tk.DoubleVar(value=self.altimeter.f0 / 1e9)
+        self.bandwidth_var = tk.DoubleVar(value=self.altimeter.B / 1e6)
+        self.modulation_var = tk.StringVar(value=ModulationType.LFM.value)
+        self.pulse_width_var = tk.DoubleVar(value=self.altimeter.pulse_width * 1e6)
+        self.pulse_period_var = tk.DoubleVar(value=self.altimeter.pulse_period * 1e3)
+        self.gain_var = tk.DoubleVar(value=self.altimeter.antenna_gain)
+        self.power_var = tk.DoubleVar(value=self.altimeter.tx_power)
+        self.roll_var = tk.DoubleVar(value=self.altimeter.roll)
+        self.pitch_var = tk.DoubleVar(value=self.altimeter.pitch)
+        self.height_var = tk.DoubleVar(value=10)
+        self.surface_var = tk.StringVar(value=SurfaceType.LAND.value)
         
         # Флаг для отображения спектра
         self.show_spectrum = False
@@ -33,21 +48,43 @@ class RadarAltimeterGUI:
         self.control_frame = ttk.LabelFrame(self.main_frame, text="Параметры", padding="5")
         self.control_frame.grid(row=0, column=0, padx=5, pady=5, sticky=(tk.W, tk.E))
         
+        # Создаем фрейм для комбинированного ландшафта
+        self.landscape_frame = ttk.LabelFrame(self.control_frame, text="Комбинированный ландшафт", padding="5")
+        self.landscape_frame.grid(row=12, column=0, columnspan=3, padx=5, pady=5, sticky=(tk.W, tk.E))
+        
+        # Инициализируем элементы управления комбинированным ландшафтом
+        self.area1_type = ttk.Combobox(self.landscape_frame, values=[st.value for st in SurfaceType if st != SurfaceType.COMBINED])
+        self.area1_x1 = ttk.Entry(self.landscape_frame, width=5)
+        self.area1_x2 = ttk.Entry(self.landscape_frame, width=5)
+        self.area1_y1 = ttk.Entry(self.landscape_frame, width=5)
+        self.area1_y2 = ttk.Entry(self.landscape_frame, width=5)
+        
+        self.area2_type = ttk.Combobox(self.landscape_frame, values=[st.value for st in SurfaceType if st != SurfaceType.COMBINED])
+        self.area2_x1 = ttk.Entry(self.landscape_frame, width=5)
+        self.area2_x2 = ttk.Entry(self.landscape_frame, width=5)
+        self.area2_y1 = ttk.Entry(self.landscape_frame, width=5)
+        self.area2_y2 = ttk.Entry(self.landscape_frame, width=5)
+        
+        # Загружаем сохраненные настройки
+        self.load_settings()
+        
+        # Создаем остальные элементы интерфейса
+        self.create_widgets()
+        
+    def create_widgets(self):
+        """Создание элементов интерфейса"""
         # Центральная частота
         ttk.Label(self.control_frame, text="Центральная частота (ГГц):").grid(row=0, column=0, padx=5, pady=5)
-        self.f0_var = tk.DoubleVar(value=self.altimeter.f0 / 1e9)
         self.f0_entry = ttk.Entry(self.control_frame, textvariable=self.f0_var)
         self.f0_entry.grid(row=0, column=1, padx=5, pady=5)
         
         # Полоса частот
         ttk.Label(self.control_frame, text="Полоса частот (МГц):").grid(row=1, column=0, padx=5, pady=5)
-        self.bandwidth_var = tk.DoubleVar(value=self.altimeter.B / 1e6)
         self.bandwidth_entry = ttk.Entry(self.control_frame, textvariable=self.bandwidth_var)
         self.bandwidth_entry.grid(row=1, column=1, padx=5, pady=5)
         
         # Тип модуляции
         ttk.Label(self.control_frame, text="Тип модуляции:").grid(row=2, column=0, padx=5, pady=5)
-        self.modulation_var = tk.StringVar(value=ModulationType.LFM.value)
         self.modulation_combo = ttk.Combobox(self.control_frame, textvariable=self.modulation_var)
         self.modulation_combo['values'] = [mt.value for mt in ModulationType]
         self.modulation_combo.grid(row=2, column=1, padx=5, pady=5)
@@ -59,31 +96,26 @@ class RadarAltimeterGUI:
         
         # Длительность импульса
         ttk.Label(self.pulse_frame, text="Длительность импульса (мкс):").grid(row=0, column=0, padx=5, pady=2)
-        self.pulse_width_var = tk.DoubleVar(value=self.altimeter.pulse_width * 1e6)
         self.pulse_width_entry = ttk.Entry(self.pulse_frame, textvariable=self.pulse_width_var)
         self.pulse_width_entry.grid(row=0, column=1, padx=5, pady=2)
         
         # Период повторения
         ttk.Label(self.pulse_frame, text="Период повторения (мс):").grid(row=1, column=0, padx=5, pady=2)
-        self.pulse_period_var = tk.DoubleVar(value=self.altimeter.pulse_period * 1e3)
         self.pulse_period_entry = ttk.Entry(self.pulse_frame, textvariable=self.pulse_period_var)
         self.pulse_period_entry.grid(row=1, column=1, padx=5, pady=2)
         
         # Коэффициент усиления антенны
         ttk.Label(self.control_frame, text="Усиление антенны (дБ):").grid(row=4, column=0, padx=5, pady=5)
-        self.gain_var = tk.DoubleVar(value=self.altimeter.antenna_gain)
         self.gain_entry = ttk.Entry(self.control_frame, textvariable=self.gain_var)
         self.gain_entry.grid(row=4, column=1, padx=5, pady=5)
         
         # Мощность передатчика
         ttk.Label(self.control_frame, text="Мощность передатчика (Вт):").grid(row=5, column=0, padx=5, pady=5)
-        self.power_var = tk.DoubleVar(value=self.altimeter.tx_power)
         self.power_entry = ttk.Entry(self.control_frame, textvariable=self.power_var)
         self.power_entry.grid(row=5, column=1, padx=5, pady=5)
         
         # Крен
         ttk.Label(self.control_frame, text="Крен (градусы):").grid(row=6, column=0, padx=5, pady=5)
-        self.roll_var = tk.DoubleVar(value=self.altimeter.roll)
         self.roll_scale = ttk.Scale(self.control_frame, from_=-30, to=30, variable=self.roll_var, 
                                   orient=tk.HORIZONTAL, command=lambda x: self.update_plots())
         self.roll_scale.grid(row=6, column=1, padx=5, pady=5, sticky=(tk.W, tk.E))
@@ -92,7 +124,6 @@ class RadarAltimeterGUI:
         
         # Тангаж
         ttk.Label(self.control_frame, text="Тангаж (градусы):").grid(row=7, column=0, padx=5, pady=5)
-        self.pitch_var = tk.DoubleVar(value=self.altimeter.pitch)
         self.pitch_scale = ttk.Scale(self.control_frame, from_=-30, to=30, variable=self.pitch_var,
                                    orient=tk.HORIZONTAL, command=lambda x: self.update_plots())
         self.pitch_scale.grid(row=7, column=1, padx=5, pady=5, sticky=(tk.W, tk.E))
@@ -101,13 +132,11 @@ class RadarAltimeterGUI:
         
         # Высота
         ttk.Label(self.control_frame, text="Высота (м):").grid(row=8, column=0, padx=5, pady=5)
-        self.height_var = tk.DoubleVar(value=10)  # Начальная высота 10 м
         self.height_entry = ttk.Entry(self.control_frame, textvariable=self.height_var)
         self.height_entry.grid(row=8, column=1, padx=5, pady=5)
         
         # Тип поверхности
         ttk.Label(self.control_frame, text="Тип поверхности:").grid(row=9, column=0, padx=5, pady=5)
-        self.surface_var = tk.StringVar(value=SurfaceType.LAND.value)
         self.surface_combo = ttk.Combobox(self.control_frame, textvariable=self.surface_var)
         self.surface_combo['values'] = [st.value for st in SurfaceType]
         self.surface_combo.grid(row=9, column=1, padx=5, pady=5)
@@ -121,62 +150,6 @@ class RadarAltimeterGUI:
         # Кнопка обновления
         self.update_button = ttk.Button(self.control_frame, text="Обновить", command=self.update_plots)
         self.update_button.grid(row=11, column=0, columnspan=2, pady=10)
-        
-        # Фрейм для комбинированного ландшафта
-        self.landscape_frame = ttk.LabelFrame(self.control_frame, text="Комбинированный ландшафт", padding="5")
-        self.landscape_frame.grid(row=12, column=0, columnspan=3, padx=5, pady=5, sticky=(tk.W, tk.E))
-        
-        # Параметры первого участка
-        ttk.Label(self.landscape_frame, text="Участок 1:").grid(row=0, column=0, padx=5, pady=2)
-        self.area1_type = ttk.Combobox(self.landscape_frame, values=[st.value for st in SurfaceType if st != SurfaceType.COMBINED])
-        self.area1_type.grid(row=0, column=1, padx=5, pady=2)
-        self.area1_type.set(SurfaceType.LAND.value)
-        
-        ttk.Label(self.landscape_frame, text="X1:").grid(row=0, column=2, padx=5, pady=2)
-        self.area1_x1 = ttk.Entry(self.landscape_frame, width=5)
-        self.area1_x1.grid(row=0, column=3, padx=5, pady=2)
-        self.area1_x1.insert(0, "0")
-        
-        ttk.Label(self.landscape_frame, text="X2:").grid(row=0, column=4, padx=5, pady=2)
-        self.area1_x2 = ttk.Entry(self.landscape_frame, width=5)
-        self.area1_x2.grid(row=0, column=5, padx=5, pady=2)
-        self.area1_x2.insert(0, "50")
-        
-        ttk.Label(self.landscape_frame, text="Y1:").grid(row=0, column=6, padx=5, pady=2)
-        self.area1_y1 = ttk.Entry(self.landscape_frame, width=5)
-        self.area1_y1.grid(row=0, column=7, padx=5, pady=2)
-        self.area1_y1.insert(0, "0")
-        
-        ttk.Label(self.landscape_frame, text="Y2:").grid(row=0, column=8, padx=5, pady=2)
-        self.area1_y2 = ttk.Entry(self.landscape_frame, width=5)
-        self.area1_y2.grid(row=0, column=9, padx=5, pady=2)
-        self.area1_y2.insert(0, "50")
-        
-        # Параметры второго участка
-        ttk.Label(self.landscape_frame, text="Участок 2:").grid(row=1, column=0, padx=5, pady=2)
-        self.area2_type = ttk.Combobox(self.landscape_frame, values=[st.value for st in SurfaceType if st != SurfaceType.COMBINED])
-        self.area2_type.grid(row=1, column=1, padx=5, pady=2)
-        self.area2_type.set(SurfaceType.SEA.value)
-        
-        ttk.Label(self.landscape_frame, text="X1:").grid(row=1, column=2, padx=5, pady=2)
-        self.area2_x1 = ttk.Entry(self.landscape_frame, width=5)
-        self.area2_x1.grid(row=1, column=3, padx=5, pady=2)
-        self.area2_x1.insert(0, "50")
-        
-        ttk.Label(self.landscape_frame, text="X2:").grid(row=1, column=4, padx=5, pady=2)
-        self.area2_x2 = ttk.Entry(self.landscape_frame, width=5)
-        self.area2_x2.grid(row=1, column=5, padx=5, pady=2)
-        self.area2_x2.insert(0, "100")
-        
-        ttk.Label(self.landscape_frame, text="Y1:").grid(row=1, column=6, padx=5, pady=2)
-        self.area2_y1 = ttk.Entry(self.landscape_frame, width=5)
-        self.area2_y1.grid(row=1, column=7, padx=5, pady=2)
-        self.area2_y1.insert(0, "0")
-        
-        ttk.Label(self.landscape_frame, text="Y2:").grid(row=1, column=8, padx=5, pady=2)
-        self.area2_y2 = ttk.Entry(self.landscape_frame, width=5)
-        self.area2_y2.grid(row=1, column=9, padx=5, pady=2)
-        self.area2_y2.insert(0, "50")
         
         # Кнопка 3D визуализации
         self.show_3d_button = ttk.Button(self.control_frame, text="Показать 3D ландшафт", command=self.show_3d_landscape)
@@ -198,6 +171,38 @@ class RadarAltimeterGUI:
         
         # Инициализируем графики
         self.update_plots()
+        
+        # Параметры первого участка
+        ttk.Label(self.landscape_frame, text="Участок 1:").grid(row=0, column=0, padx=5, pady=2)
+        self.area1_type.grid(row=0, column=1, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="X1:").grid(row=0, column=2, padx=5, pady=2)
+        self.area1_x1.grid(row=0, column=3, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="X2:").grid(row=0, column=4, padx=5, pady=2)
+        self.area1_x2.grid(row=0, column=5, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="Y1:").grid(row=0, column=6, padx=5, pady=2)
+        self.area1_y1.grid(row=0, column=7, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="Y2:").grid(row=0, column=8, padx=5, pady=2)
+        self.area1_y2.grid(row=0, column=9, padx=5, pady=2)
+        
+        # Параметры второго участка
+        ttk.Label(self.landscape_frame, text="Участок 2:").grid(row=1, column=0, padx=5, pady=2)
+        self.area2_type.grid(row=1, column=1, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="X1:").grid(row=1, column=2, padx=5, pady=2)
+        self.area2_x1.grid(row=1, column=3, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="X2:").grid(row=1, column=4, padx=5, pady=2)
+        self.area2_x2.grid(row=1, column=5, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="Y1:").grid(row=1, column=6, padx=5, pady=2)
+        self.area2_y1.grid(row=1, column=7, padx=5, pady=2)
+        
+        ttk.Label(self.landscape_frame, text="Y2:").grid(row=1, column=8, padx=5, pady=2)
+        self.area2_y2.grid(row=1, column=9, padx=5, pady=2)
         
     def toggle_spectrum(self):
         self.show_spectrum = self.spectrum_var.get()
@@ -797,6 +802,15 @@ class RadarAltimeterGUI:
         t, rx_signal = self.altimeter.simulate_reflection(self.height_var.get(), surface_params)
         _, tx_signal = self.altimeter.generate_chirp_signal(self.altimeter.T, self.altimeter.B)
         
+        # Нормализуем сигналы, избегая деления на ноль
+        max_tx = np.max(np.abs(tx_signal))
+        max_rx = np.max(np.abs(rx_signal))
+        
+        if max_tx > 0:
+            tx_signal = tx_signal / max_tx
+        if max_rx > 0:
+            rx_signal = rx_signal / max_rx
+        
         # Очищаем графики
         self.ax1.clear()
         self.ax2.clear()
@@ -860,7 +874,91 @@ class RadarAltimeterGUI:
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def save_settings(self):
+        """Сохранение настроек в JSON файл"""
+        try:
+            settings = {
+                'f0': self.f0_var.get(),
+                'bandwidth': self.bandwidth_var.get(),
+                'modulation': self.modulation_var.get(),
+                'pulse_width': self.pulse_width_var.get(),
+                'pulse_period': self.pulse_period_var.get(),
+                'gain': self.gain_var.get(),
+                'power': self.power_var.get(),
+                'roll': self.roll_var.get(),
+                'pitch': self.pitch_var.get(),
+                'height': self.height_var.get(),
+                'surface': self.surface_var.get(),
+                'area1_type': self.area1_type.get(),
+                'area1_x1': self.area1_x1.get(),
+                'area1_x2': self.area1_x2.get(),
+                'area1_y1': self.area1_y1.get(),
+                'area1_y2': self.area1_y2.get(),
+                'area2_type': self.area2_type.get(),
+                'area2_x1': self.area2_x1.get(),
+                'area2_x2': self.area2_x2.get(),
+                'area2_y1': self.area2_y1.get(),
+                'area2_y2': self.area2_y2.get()
+            }
+            
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f, indent=4)
+        except Exception as e:
+            print(f"Ошибка при сохранении настроек: {e}")
+
+    def load_settings(self):
+        """Загрузка настроек из JSON файла"""
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r') as f:
+                    settings = json.load(f)
+                    
+                # Обновляем значения переменных
+                self.f0_var.set(settings.get('f0', self.f0_var.get()))
+                self.bandwidth_var.set(settings.get('bandwidth', self.bandwidth_var.get()))
+                self.modulation_var.set(settings.get('modulation', self.modulation_var.get()))
+                self.pulse_width_var.set(settings.get('pulse_width', self.pulse_width_var.get()))
+                self.pulse_period_var.set(settings.get('pulse_period', self.pulse_period_var.get()))
+                self.gain_var.set(settings.get('gain', self.gain_var.get()))
+                self.power_var.set(settings.get('power', self.power_var.get()))
+                self.roll_var.set(settings.get('roll', self.roll_var.get()))
+                self.pitch_var.set(settings.get('pitch', self.pitch_var.get()))
+                self.height_var.set(settings.get('height', self.height_var.get()))
+                self.surface_var.set(settings.get('surface', self.surface_var.get()))
+                
+                # Обновляем настройки комбинированного ландшафта
+                self.area1_type.set(settings.get('area1_type', SurfaceType.LAND.value))
+                self.area1_x1.delete(0, tk.END)
+                self.area1_x1.insert(0, settings.get('area1_x1', "0"))
+                self.area1_x2.delete(0, tk.END)
+                self.area1_x2.insert(0, settings.get('area1_x2', "50"))
+                self.area1_y1.delete(0, tk.END)
+                self.area1_y1.insert(0, settings.get('area1_y1', "0"))
+                self.area1_y2.delete(0, tk.END)
+                self.area1_y2.insert(0, settings.get('area1_y2', "50"))
+                
+                self.area2_type.set(settings.get('area2_type', SurfaceType.SEA.value))
+                self.area2_x1.delete(0, tk.END)
+                self.area2_x1.insert(0, settings.get('area2_x1', "50"))
+                self.area2_x2.delete(0, tk.END)
+                self.area2_x2.insert(0, settings.get('area2_x2', "100"))
+                self.area2_y1.delete(0, tk.END)
+                self.area2_y1.insert(0, settings.get('area2_y1', "0"))
+                self.area2_y2.delete(0, tk.END)
+                self.area2_y2.insert(0, settings.get('area2_y2', "50"))
+        except Exception as e:
+            print(f"Ошибка при загрузке настроек: {e}")
+            # Если файл не найден или поврежден, оставляем значения по умолчанию
+            pass
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = RadarAltimeterGUI(root)
+    
+    # Добавляем обработчик закрытия окна
+    def on_closing():
+        app.save_settings()
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop() 
