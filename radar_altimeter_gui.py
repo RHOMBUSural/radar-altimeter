@@ -223,9 +223,10 @@ class RadarAltimeterGUI:
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection='3d')
         
-        # Создаем сетку для поверхности
-        x = np.linspace(0, 100, 100)
-        y = np.linspace(0, 100, 100)
+        # Создаем сетку для поверхности с большим разрешением
+        resolution = 200
+        x = np.linspace(0, 100, resolution)
+        y = np.linspace(0, 100, resolution)
         X, Y = np.meshgrid(x, y)
         
         # Создаем комбинированную поверхность
@@ -238,9 +239,19 @@ class RadarAltimeterGUI:
              float(self.area2_y1.get()), float(self.area2_y2.get()))
         ])
         
-        # Создаем Z-координаты в зависимости от типа поверхности
+        # Создаем Z-координаты и цвета
         Z = np.zeros_like(X)
         colors = np.zeros_like(X, dtype=object)
+        
+        # Базовые высоты для разных типов поверхности
+        base_heights = {
+            SurfaceType.SEA: 0,
+            SurfaceType.ICE: 5,
+            SurfaceType.LAND: 10,
+            SurfaceType.DESERT: 15,
+            SurfaceType.FOREST: 20,
+            SurfaceType.URBAN: 30
+        }
         
         # Цвета для разных типов поверхности
         color_map = {
@@ -252,58 +263,89 @@ class RadarAltimeterGUI:
             SurfaceType.DESERT: 'yellow'
         }
         
-        # Высоты для разных типов поверхности
-        height_map = {
-            SurfaceType.SEA: 0,
-            SurfaceType.ICE: 5,
-            SurfaceType.LAND: 10,
-            SurfaceType.DESERT: 15,
-            SurfaceType.FOREST: 20,
-            SurfaceType.URBAN: 30
-        }
+        # Функция для генерации шума Перлина
+        def perlin_noise(x, y, scale=0.1, octaves=6, persistence=0.5, lacunarity=2.0):
+            noise = np.zeros_like(x)
+            amplitude = 1.0
+            frequency = 1.0
+            for _ in range(octaves):
+                noise += amplitude * np.sin(2 * np.pi * frequency * (x * scale + y * scale))
+                amplitude *= persistence
+                frequency *= lacunarity
+            return noise
+        
+        # Генерируем базовый шум для всей поверхности
+        base_noise = perlin_noise(X, Y, scale=0.05)
         
         # Создаем массив для отраженного сигнала
         signal_strength = np.zeros_like(X)
         
+        # Генерируем ландшафт
         for i in range(len(x)):
             for j in range(len(y)):
                 surface_type = combined_surface.get_surface_type(x[i], y[j])
-                Z[i,j] = height_map[surface_type]
+                base_height = base_heights[surface_type]
+                
+                # Добавляем детализацию в зависимости от типа поверхности
+                if surface_type == SurfaceType.SEA:
+                    # Волны на море
+                    wave_height = 2 * np.sin(0.2 * x[i]) * np.cos(0.2 * y[j])
+                    Z[i,j] = base_height + wave_height
+                elif surface_type == SurfaceType.FOREST:
+                    # Неровности леса
+                    forest_noise = perlin_noise(x[i], y[j], scale=0.2) * 5
+                    Z[i,j] = base_height + forest_noise
+                elif surface_type == SurfaceType.URBAN:
+                    # Здания и сооружения
+                    building_height = np.random.normal(5, 2) if np.random.random() < 0.3 else 0
+                    Z[i,j] = base_height + building_height
+                elif surface_type == SurfaceType.DESERT:
+                    # Дюны
+                    dune_height = 3 * np.sin(0.1 * x[i]) * np.cos(0.1 * y[j])
+                    Z[i,j] = base_height + dune_height
+                elif surface_type == SurfaceType.ICE:
+                    # Трещины и неровности льда
+                    ice_noise = perlin_noise(x[i], y[j], scale=0.15) * 3
+                    Z[i,j] = base_height + ice_noise
+                else:
+                    # Обычный ландшафт
+                    Z[i,j] = base_height + base_noise[i,j] * 5
+                
+                # Добавляем общий шум для реалистичности
+                Z[i,j] += np.random.normal(0, 0.5)
+                
+                # Устанавливаем цвет
                 colors[i,j] = color_map[surface_type]
                 
-                # Создаем параметры поверхности для текущей точки
+                # Рассчитываем параметры отражения
                 surface_params = SurfaceParameters(surface_type)
-                
-                # Рассчитываем угол скольжения для текущей точки
-                dx = x[i] - 50  # Смещение от центра
+                dx = x[i] - 50
                 dy = y[j] - 50
                 distance = np.sqrt(dx**2 + dy**2)
                 grazing_angle = np.arctan2(self.height_var.get(), distance)
-                
-                # Рассчитываем коэффициент отражения
                 reflection_coeff = self.altimeter.calculate_reflection_coefficient(grazing_angle, surface_params)
-                
-                # Учитываем затухание с расстоянием
                 attenuation = 1.0 / (distance**2 + self.height_var.get()**2)
-                
-                # Сохраняем силу сигнала
                 signal_strength[i,j] = reflection_coeff * attenuation
         
-        # Нормализуем силу сигнала для визуализации
+        # Сглаживаем высоты для плавных переходов
+        from scipy.ndimage import gaussian_filter
+        Z = gaussian_filter(Z, sigma=1.0)
+        
+        # Нормализуем силу сигнала
         signal_strength = signal_strength / np.max(signal_strength)
         
         # Отображаем поверхность с цветами
         surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8)
         
         # Отображаем силу отраженного сигнала
-        signal_surf = ax.plot_surface(X, Y, Z + 5, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
+        signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
         
         # Добавляем легенду
         legend_elements = []
         for surface_type, color in color_map.items():
             legend_elements.append(plt.Line2D([0], [0], marker='s', color='w', 
                                             markerfacecolor=color, markersize=10,
-                                            label=f"{surface_type.value} ({height_map[surface_type]}м)"))
+                                            label=f"{surface_type.value} ({base_heights[surface_type]}м)"))
         
         ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.2, 1))
         
@@ -318,9 +360,14 @@ class RadarAltimeterGUI:
         # Добавляем сетку
         ax.grid(True)
         
-        # Добавляем подпись с текущими углами крена и тангажа
-        ax.text2D(0.02, 0.95, f"Крен: {self.roll_var.get():.1f}°\nТангаж: {self.pitch_var.get():.1f}°\nВысота: {self.height_var.get()}м", 
-                 transform=ax.transAxes, bbox=dict(facecolor='white', alpha=0.8))
+        # Добавляем подпись с текущими параметрами
+        ax.text2D(0.02, 0.95, 
+                 f"Крен: {self.roll_var.get():.1f}°\n"
+                 f"Тангаж: {self.pitch_var.get():.1f}°\n"
+                 f"Высота: {self.height_var.get()}м\n"
+                 f"Разрешение: {resolution}x{resolution}",
+                 transform=ax.transAxes, 
+                 bbox=dict(facecolor='white', alpha=0.8))
         
         # Создаем холст для отображения графика
         canvas = FigureCanvasTkAgg(fig, master=landscape_window)
