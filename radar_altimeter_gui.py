@@ -22,6 +22,9 @@ class RadarAltimeterGUI:
         # Флаг для отображения спектра
         self.show_spectrum = False
         
+        # Флаг для отображения отраженного сигнала
+        self.show_signal_var = tk.BooleanVar(value=True)
+        
         # Создаем основной фрейм
         self.main_frame = ttk.Frame(root, padding="10")
         self.main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -274,6 +277,77 @@ class RadarAltimeterGUI:
                 frequency *= lacunarity
             return noise
         
+        # Функция для расчета градиентов высот
+        def calculate_gradients(Z, dx, dy):
+            # Используем центральные разности для расчета градиентов
+            grad_x = np.gradient(Z, dx, axis=1)
+            grad_y = np.gradient(Z, dy, axis=0)
+            return grad_x, grad_y
+        
+        # Функция для расчета локальных углов падения
+        def calculate_local_angles(grad_x, grad_y):
+            # Вычисляем угол наклона поверхности
+            slope = np.arctan(np.sqrt(grad_x**2 + grad_y**2))
+            # Вычисляем азимут наклона
+            aspect = np.arctan2(grad_y, grad_x)
+            return slope, aspect
+        
+        # Функция для расчета многолучевого распространения
+        def calculate_multipath(X, Y, Z, height, max_reflections=2):
+            # Создаем массив для хранения силы сигнала с учетом многолучевости
+            signal_strength = np.zeros_like(X)
+            
+            # Для каждой точки поверхности
+            for i in range(len(x)):
+                for j in range(len(y)):
+                    # Прямой путь
+                    dx = X[i,j] - 50  # Центр поверхности
+                    dy = Y[i,j] - 50
+                    dz = Z[i,j] - height
+                    direct_path = np.sqrt(dx**2 + dy**2 + dz**2)
+                    
+                    # Рассчитываем силу сигнала для прямого пути
+                    surface_type = combined_surface.get_surface_type(X[i,j], Y[i,j])
+                    surface_params = SurfaceParameters(surface_type)
+                    grazing_angle = np.arctan2(height - Z[i,j], np.sqrt(dx**2 + dy**2))
+                    reflection_coeff = self.altimeter.calculate_reflection_coefficient(grazing_angle, surface_params)
+                    direct_signal = reflection_coeff / (direct_path**2)
+                    
+                    # Добавляем вторичные отражения
+                    total_signal = direct_signal
+                    for reflection in range(max_reflections):
+                        # Ищем ближайшие точки для вторичного отражения
+                        for di in [-1, 0, 1]:
+                            for dj in [-1, 0, 1]:
+                                if di == 0 and dj == 0:
+                                    continue
+                                
+                                ni, nj = i + di, j + dj
+                                if 0 <= ni < len(x) and 0 <= nj < len(y):
+                                    # Рассчитываем путь через вторичное отражение
+                                    dx1 = X[ni,nj] - 50
+                                    dy1 = Y[ni,nj] - 50
+                                    dz1 = Z[ni,nj] - height
+                                    path1 = np.sqrt(dx1**2 + dy1**2 + dz1**2)
+                                    
+                                    dx2 = X[i,j] - X[ni,nj]
+                                    dy2 = Y[i,j] - Y[ni,nj]
+                                    dz2 = Z[i,j] - Z[ni,nj]
+                                    path2 = np.sqrt(dx2**2 + dy2**2 + dz2**2)
+                                    
+                                    # Рассчитываем силу сигнала для вторичного отражения
+                                    surface_type1 = combined_surface.get_surface_type(X[ni,nj], Y[ni,nj])
+                                    surface_params1 = SurfaceParameters(surface_type1)
+                                    grazing_angle1 = np.arctan2(height - Z[ni,nj], np.sqrt(dx1**2 + dy1**2))
+                                    reflection_coeff1 = self.altimeter.calculate_reflection_coefficient(grazing_angle1, surface_params1)
+                                    
+                                    secondary_signal = reflection_coeff1 / (path1 * path2)
+                                    total_signal += secondary_signal * 0.1  # Ослабление вторичного сигнала
+                    
+                    signal_strength[i,j] = total_signal
+            
+            return signal_strength
+        
         # Генерируем базовый шум для всей поверхности
         base_noise = perlin_noise(X, Y, scale=0.05)
         
@@ -316,20 +390,21 @@ class RadarAltimeterGUI:
                 
                 # Устанавливаем цвет
                 colors[i,j] = color_map[surface_type]
-                
-                # Рассчитываем параметры отражения
-                surface_params = SurfaceParameters(surface_type)
-                dx = x[i] - 50
-                dy = y[j] - 50
-                distance = np.sqrt(dx**2 + dy**2)
-                grazing_angle = np.arctan2(self.height_var.get(), distance)
-                reflection_coeff = self.altimeter.calculate_reflection_coefficient(grazing_angle, surface_params)
-                attenuation = 1.0 / (distance**2 + self.height_var.get()**2)
-                signal_strength[i,j] = reflection_coeff * attenuation
         
         # Сглаживаем высоты для плавных переходов
         from scipy.ndimage import gaussian_filter
         Z = gaussian_filter(Z, sigma=1.0)
+        
+        # Рассчитываем градиенты высот
+        dx = x[1] - x[0]
+        dy = y[1] - y[0]
+        grad_x, grad_y = calculate_gradients(Z, dx, dy)
+        
+        # Рассчитываем локальные углы падения
+        slope, aspect = calculate_local_angles(grad_x, grad_y)
+        
+        # Рассчитываем многолучевое распространение
+        signal_strength = calculate_multipath(X, Y, Z, self.height_var.get())
         
         # Нормализуем силу сигнала
         signal_strength = signal_strength / np.max(signal_strength)
@@ -337,8 +412,9 @@ class RadarAltimeterGUI:
         # Отображаем поверхность с цветами
         surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8)
         
-        # Отображаем силу отраженного сигнала
-        signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
+        # Отображаем силу отраженного сигнала, если включено
+        if self.show_signal_var.get():
+            signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
         
         # Добавляем легенду
         legend_elements = []
