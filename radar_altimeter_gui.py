@@ -232,7 +232,7 @@ class RadarAltimeterGUI:
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         
         # Добавляем чекбокс для отображения отраженного сигнала
-        show_signal_var = tk.BooleanVar(value=True)
+        show_signal_var = tk.BooleanVar(value=False)
         show_signal_check = ttk.Checkbutton(control_frame, text="Показать отраженный сигнал", 
                                           variable=show_signal_var,
                                           command=lambda: self.update_3d_plot(fig, ax, X, Y, Z, colors, 
