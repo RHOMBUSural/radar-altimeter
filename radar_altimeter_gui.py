@@ -315,6 +315,16 @@ class RadarAltimeterGUI:
             # Создаем массив для хранения силы сигнала с учетом многолучевости
             signal_strength = np.zeros_like(X)
             
+            # Создаем комбинированную поверхность
+            combined_surface = CombinedSurface([
+                (SurfaceType(self.area1_type.get()), 
+                 float(self.area1_x1.get()), float(self.area1_x2.get()),
+                 float(self.area1_y1.get()), float(self.area1_y2.get())),
+                (SurfaceType(self.area2_type.get()),
+                 float(self.area2_x1.get()), float(self.area2_x2.get()),
+                 float(self.area2_y1.get()), float(self.area2_y2.get()))
+            ])
+            
             # Для каждой точки поверхности
             for i in range(len(x)):
                 for j in range(len(y)):
@@ -485,15 +495,106 @@ class RadarAltimeterGUI:
         save_button.pack(pady=5)
     
     def update_3d_plot(self, fig, ax, X, Y, Z, colors, signal_strength, show_signal):
+        # Создаем комбинированную поверхность
+        combined_surface = CombinedSurface([
+            (SurfaceType(self.area1_type.get()), 
+             float(self.area1_x1.get()), float(self.area1_x2.get()),
+             float(self.area1_y1.get()), float(self.area1_y2.get())),
+            (SurfaceType(self.area2_type.get()),
+             float(self.area2_x1.get()), float(self.area2_x2.get()),
+             float(self.area2_y1.get()), float(self.area2_y2.get()))
+        ])
+        
+        # Базовые высоты для разных типов поверхности
+        base_heights = {
+            SurfaceType.SEA: 0,
+            SurfaceType.ICE: 5,
+            SurfaceType.LAND: 10,
+            SurfaceType.DESERT: 15,
+            SurfaceType.FOREST: 20,
+            SurfaceType.URBAN: 30
+        }
+        
+        # Цвета для разных типов поверхности
+        color_map = {
+            SurfaceType.SEA: 'blue',
+            SurfaceType.LAND: 'green',
+            SurfaceType.FOREST: 'darkgreen',
+            SurfaceType.URBAN: 'gray',
+            SurfaceType.ICE: 'lightblue',
+            SurfaceType.DESERT: 'yellow'
+        }
+        
+        # Функция для генерации шума Перлина
+        def perlin_noise(x, y, scale=0.1, octaves=6, persistence=0.5, lacunarity=2.0):
+            noise = np.zeros_like(x)
+            amplitude = 1.0
+            frequency = 1.0
+            for _ in range(octaves):
+                noise += amplitude * np.sin(2 * np.pi * frequency * (x * scale + y * scale))
+                amplitude *= persistence
+                frequency *= lacunarity
+            return noise
+        
+        # Генерируем базовый шум для всей поверхности
+        base_noise = perlin_noise(X, Y, scale=0.05)
+        
+        # Генерируем ландшафт
+        for i in range(len(X)):
+            for j in range(len(Y)):
+                surface_type = combined_surface.get_surface_type(X[i,j], Y[i,j])
+                base_height = base_heights[surface_type]
+                
+                # Добавляем детализацию в зависимости от типа поверхности
+                if surface_type == SurfaceType.SEA:
+                    # Волны на море
+                    wave_height = 2 * np.sin(0.2 * X[i,j]) * np.cos(0.2 * Y[i,j])
+                    Z[i,j] = base_height + wave_height
+                elif surface_type == SurfaceType.FOREST:
+                    # Неровности леса
+                    forest_noise = perlin_noise(X[i,j], Y[i,j], scale=0.2) * 5
+                    Z[i,j] = base_height + forest_noise
+                elif surface_type == SurfaceType.URBAN:
+                    # Здания и сооружения
+                    building_height = np.random.normal(5, 2) if np.random.random() < 0.3 else 0
+                    Z[i,j] = base_height + building_height
+                elif surface_type == SurfaceType.DESERT:
+                    # Дюны
+                    dune_height = 3 * np.sin(0.1 * X[i,j]) * np.cos(0.1 * Y[i,j])
+                    Z[i,j] = base_height + dune_height
+                elif surface_type == SurfaceType.ICE:
+                    # Трещины и неровности льда
+                    ice_noise = perlin_noise(X[i,j], Y[i,j], scale=0.15) * 3
+                    Z[i,j] = base_height + ice_noise
+                else:
+                    # Обычный ландшафт
+                    Z[i,j] = base_height + base_noise[i,j] * 5
+                
+                # Добавляем общий шум для реалистичности
+                Z[i,j] += np.random.normal(0, 0.5)
+                
+                # Устанавливаем цвет
+                colors[i,j] = color_map[surface_type]
+        
+        # Сглаживаем высоты для плавных переходов
+        from scipy.ndimage import gaussian_filter
+        Z = gaussian_filter(Z, sigma=1.0)
+        
+        # Рассчитываем многолучевое распространение
+        signal_strength = self.calculate_multipath(X, Y, Z, self.height_var.get())
+        
+        # Нормализуем силу сигнала
+        signal_strength = signal_strength / np.max(signal_strength)
+        
         # Очищаем текущий график
         ax.clear()
         
         # Отображаем поверхность с цветами
-        surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8)
+        surf = ax.plot_surface(X, Y, Z, facecolors=colors, alpha=0.8, antialiased=True)
         
         # Отображаем силу отраженного сигнала, если включено
         if show_signal:
-            signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6)
+            signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6, antialiased=True)
         
         # Настраиваем оси
         ax.set_xlabel('X (м)')
@@ -506,8 +607,91 @@ class RadarAltimeterGUI:
         # Добавляем сетку
         ax.grid(True)
         
+        # Добавляем подпись с текущими параметрами
+        ax.text2D(0.02, 0.95, 
+                 f"Крен: {self.roll_var.get():.1f}°\n"
+                 f"Тангаж: {self.pitch_var.get():.1f}°\n"
+                 f"Высота: {self.height_var.get()}м\n"
+                 f"Разрешение: {len(X)}x{len(Y)}",
+                 transform=ax.transAxes, 
+                 bbox=dict(facecolor='white', alpha=0.8))
+        
+        # Добавляем легенду
+        legend_elements = []
+        for surface_type, color in color_map.items():
+            legend_elements.append(plt.Line2D([0], [0], marker='s', color='w', 
+                                            markerfacecolor=color, markersize=10,
+                                            label=f"{surface_type.value} ({base_heights[surface_type]}м)"))
+        
+        ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.2, 1))
+        
         # Обновляем холст
         fig.canvas.draw()
+    
+    def calculate_multipath(self, X, Y, Z, height, max_reflections=2):
+        # Создаем массив для хранения силы сигнала с учетом многолучевости
+        signal_strength = np.zeros_like(X)
+        
+        # Создаем комбинированную поверхность
+        combined_surface = CombinedSurface([
+            (SurfaceType(self.area1_type.get()), 
+             float(self.area1_x1.get()), float(self.area1_x2.get()),
+             float(self.area1_y1.get()), float(self.area1_y2.get())),
+            (SurfaceType(self.area2_type.get()),
+             float(self.area2_x1.get()), float(self.area2_x2.get()),
+             float(self.area2_y1.get()), float(self.area2_y2.get()))
+        ])
+        
+        # Для каждой точки поверхности
+        for i in range(len(X)):
+            for j in range(len(Y)):
+                # Прямой путь
+                dx = X[i,j] - 50  # Центр поверхности
+                dy = Y[i,j] - 50
+                dz = Z[i,j] - height
+                direct_path = np.sqrt(dx**2 + dy**2 + dz**2)
+                
+                # Рассчитываем силу сигнала для прямого пути
+                surface_type = combined_surface.get_surface_type(X[i,j], Y[i,j])
+                surface_params = SurfaceParameters(surface_type)
+                grazing_angle = np.arctan2(height - Z[i,j], np.sqrt(dx**2 + dy**2))
+                reflection_coeff = self.altimeter.calculate_reflection_coefficient(grazing_angle, surface_params)
+                direct_signal = reflection_coeff / (direct_path**2)
+                
+                # Добавляем вторичные отражения
+                total_signal = direct_signal
+                for reflection in range(max_reflections):
+                    # Ищем ближайшие точки для вторичного отражения
+                    for di in [-1, 0, 1]:
+                        for dj in [-1, 0, 1]:
+                            if di == 0 and dj == 0:
+                                continue
+                            
+                            ni, nj = i + di, j + dj
+                            if 0 <= ni < len(X) and 0 <= nj < len(Y):
+                                # Рассчитываем путь через вторичное отражение
+                                dx1 = X[ni,nj] - 50
+                                dy1 = Y[ni,nj] - 50
+                                dz1 = Z[ni,nj] - height
+                                path1 = np.sqrt(dx1**2 + dy1**2 + dz1**2)
+                                
+                                dx2 = X[i,j] - X[ni,nj]
+                                dy2 = Y[i,j] - Y[ni,nj]
+                                dz2 = Z[i,j] - Z[ni,nj]
+                                path2 = np.sqrt(dx2**2 + dy2**2 + dz2**2)
+                                
+                                # Рассчитываем силу сигнала для вторичного отражения
+                                surface_type1 = combined_surface.get_surface_type(X[ni,nj], Y[ni,nj])
+                                surface_params1 = SurfaceParameters(surface_type1)
+                                grazing_angle1 = np.arctan2(height - Z[ni,nj], np.sqrt(dx1**2 + dy1**2))
+                                reflection_coeff1 = self.altimeter.calculate_reflection_coefficient(grazing_angle1, surface_params1)
+                                
+                                secondary_signal = reflection_coeff1 / (path1 * path2)
+                                total_signal += secondary_signal * 0.1  # Ослабление вторичного сигнала
+                
+                signal_strength[i,j] = total_signal
+        
+        return signal_strength
 
     def update_plots(self):
         # Обновляем параметры радиовысотомера
