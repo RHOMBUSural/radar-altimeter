@@ -245,7 +245,7 @@ class RadarAltimeterGUI:
         ax = fig.add_subplot(111, projection='3d')
         
         # Создаем сетку для поверхности с большим разрешением
-        resolution = 200
+        resolution = 100
         x = np.linspace(0, 100, resolution)
         y = np.linspace(0, 100, resolution)
         X, Y = np.meshgrid(x, y)
@@ -597,11 +597,11 @@ class RadarAltimeterGUI:
             signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6, antialiased=True)
         
         # Добавляем летательный аппарат
-        def draw_aircraft(ax, x, y, z, roll, pitch, scale=1.0):
+        def draw_aircraft(ax, x, y, z, roll, pitch, scale=0.5):
             # Основные размеры самолета
-            length = 5 * scale
-            width = 2 * scale
-            height = 1 * scale
+            length = 2.5 * scale  # Уменьшено с 5 до 2.5
+            width = 1 * scale    # Уменьшено с 2 до 1
+            height = 0.5 * scale # Уменьшено с 1 до 0.5
             
             # Создаем точки для фюзеляжа
             fuselage_x = np.array([-length/2, -length/2, length/2, length/2, -length/2])
