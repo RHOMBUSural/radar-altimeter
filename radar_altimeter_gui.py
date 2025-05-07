@@ -277,7 +277,7 @@ class RadarAltimeterGUI:
         # Цвета для разных типов поверхности
         color_map = {
             SurfaceType.SEA: 'blue',
-            SurfaceType.LAND: 'green',
+            SurfaceType.LAND: 'brown',
             SurfaceType.FOREST: 'darkgreen',
             SurfaceType.URBAN: 'gray',
             SurfaceType.ICE: 'lightblue',
@@ -518,7 +518,7 @@ class RadarAltimeterGUI:
         # Цвета для разных типов поверхности
         color_map = {
             SurfaceType.SEA: 'blue',
-            SurfaceType.LAND: 'green',
+            SurfaceType.LAND: 'brown',
             SurfaceType.FOREST: 'darkgreen',
             SurfaceType.URBAN: 'gray',
             SurfaceType.ICE: 'lightblue',
