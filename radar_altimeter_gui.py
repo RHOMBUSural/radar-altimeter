@@ -596,6 +596,71 @@ class RadarAltimeterGUI:
         if show_signal:
             signal_surf = ax.plot_surface(X, Y, Z + 2, facecolors=plt.cm.viridis(signal_strength), alpha=0.6, antialiased=True)
         
+        # Добавляем летательный аппарат
+        def draw_aircraft(ax, x, y, z, roll, pitch, scale=1.0):
+            # Основные размеры самолета
+            length = 5 * scale
+            width = 2 * scale
+            height = 1 * scale
+            
+            # Создаем точки для фюзеляжа
+            fuselage_x = np.array([-length/2, -length/2, length/2, length/2, -length/2])
+            fuselage_y = np.array([-width/2, width/2, width/2, -width/2, -width/2])
+            fuselage_z = np.array([0, 0, 0, 0, 0])
+            
+            # Создаем точки для крыльев
+            wing_x = np.array([-length/4, -length/4, length/4, length/4, -length/4])
+            wing_y = np.array([-width*2, width*2, width*2, -width*2, -width*2])
+            wing_z = np.array([0, 0, 0, 0, 0])
+            
+            # Создаем точки для хвоста
+            tail_x = np.array([length/2, length/2, length/2 + length/4, length/2 + length/4, length/2])
+            tail_y = np.array([-width/2, width/2, width/2, -width/2, -width/2])
+            tail_z = np.array([0, 0, height/2, height/2, 0])
+            
+            # Применяем повороты
+            def rotate_points(x, y, z, roll, pitch):
+                # Поворот по крену (вокруг оси X)
+                y_roll = y * np.cos(roll) - z * np.sin(roll)
+                z_roll = y * np.sin(roll) + z * np.cos(roll)
+                
+                # Поворот по тангажу (вокруг оси Y)
+                x_pitch = x * np.cos(pitch) + z_roll * np.sin(pitch)
+                z_pitch = -x * np.sin(pitch) + z_roll * np.cos(pitch)
+                
+                return x_pitch, y_roll, z_pitch
+            
+            # Поворачиваем все части самолета
+            fuselage_x, fuselage_y, fuselage_z = rotate_points(fuselage_x, fuselage_y, fuselage_z, 
+                                                             np.radians(roll), np.radians(pitch))
+            wing_x, wing_y, wing_z = rotate_points(wing_x, wing_y, wing_z, 
+                                                 np.radians(roll), np.radians(pitch))
+            tail_x, tail_y, tail_z = rotate_points(tail_x, tail_y, tail_z, 
+                                                 np.radians(roll), np.radians(pitch))
+            
+            # Смещаем все части в нужную позицию
+            fuselage_x += x
+            fuselage_y += y
+            fuselage_z += z
+            wing_x += x
+            wing_y += y
+            wing_z += z
+            tail_x += x
+            tail_y += y
+            tail_z += z
+            
+            # Рисуем части самолета
+            ax.plot_surface(fuselage_x.reshape(-1, 1), fuselage_y.reshape(-1, 1), 
+                          fuselage_z.reshape(-1, 1), color='gray', alpha=0.8)
+            ax.plot_surface(wing_x.reshape(-1, 1), wing_y.reshape(-1, 1), 
+                          wing_z.reshape(-1, 1), color='gray', alpha=0.8)
+            ax.plot_surface(tail_x.reshape(-1, 1), tail_y.reshape(-1, 1), 
+                          tail_z.reshape(-1, 1), color='gray', alpha=0.8)
+        
+        # Рисуем летательный аппарат в центре поверхности
+        draw_aircraft(ax, 50, 50, self.height_var.get(), 
+                     self.roll_var.get(), self.pitch_var.get())
+        
         # Настраиваем оси
         ax.set_xlabel('X (м)')
         ax.set_ylabel('Y (м)')
